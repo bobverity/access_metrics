@@ -1,0 +1,189 @@
+---
+title: 'Accessible metrics of access: Novel tools to measure immunization coverage'
+subtitle: "How are healthcare facilities being accessed?"
+author: "Bob Verity"
+date: "09/03/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE, message = FALSE}
+library(sf)
+library(tidyr)
+library(leaflet)
+library(RColorBrewer)
+library(ggplot2)
+library(epitools)
+library(bobfunctions2)
+library(kableExtra)
+```
+
+## Data processing
+
+Data on visits were imported and factor levels were recovered from REDCap codes. As noted by Paul, there are some observations that are missing spatial coordinates or that have obvious data entry mistakes. However, I get different numbers: 24 / 4454 observations that are missing coordinates and 135 / 4454 that have a discrepancy between the repeated measures. Many of these data entry mistakes are obvious and could be fixed by hand, but we might think about formalising how we do this to make it easier for the large dataset and to reduce subjectivity. All 159 problem entries have been filtered out in the following analysis.
+
+Other datasets include a shapefile of parish and village level boundaries, and a spreadsheet of population projections. In both cases there were ambiguities in village names that were fixed prior to merging.
+
+```{r, echo = FALSE}
+# read in Ross data
+main_dat <- readRDS("../../output/VaccineAcc_processed.rds")
+
+# drop problematic observations
+main_dat <- main_dat %>%
+  dplyr::filter(!is.na(hh_long) & !is.na(hh_lat) & !is.na(hh_long2) & !is.na(hh_lat2)) %>%
+  dplyr::filter((hh_long == hh_long2) & (hh_lat == hh_lat2))
+
+# read in parish shapefile
+parish_dat <- readRDS("../../output/parish_dat_processed.rds") %>%
+  dplyr::filter(PNAME %in% c("BUGOYE", "MUHAMBO", "IBANDA", "KATOOKE", "KIBIRIZI")) %>%
+  st_transform(crs = "+proj=longlat +datum=WGS84")
+```
+
+## Breakdown of visits by healthcare facility
+
+Unsurprisingly, different healthcare facilities are accessed for different reasons For example, Bugoye HC III appears to serve the majority of the antenatal needs of the community, while Ibanda HC II is mainly accessed for OPD visits.
+
+```{r, echo = FALSE, fig.width = 8, fig.height = 4}
+# produce plot
+main_dat %>%
+  dplyr::filter(!is.na(visit_type) & !is.na(ph1_site)) %>%
+  dplyr::group_by(ph1_site, visit_type) %>%
+  dplyr::count() %>%
+  ggplot() + theme_bw() +
+  geom_bar(aes(x = ph1_site, y = n, fill = visit_type), color = "black", position = "dodge", stat = "identity") +
+  xlab("healthcare facility") + ylab("number of visits") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+The distance travelled to each facility shows marked variation. For example, people appear generally more willing to travel long distances (2-3km) to Bugoye HC III. There are also interactions with visit type, for example people are willing to travel long distances to Ibanda HC II for immunization, but the majority of OPD visits are from nearby. The following plots are for crow-flies distance, and might be more informative if replaced with a more realistic measure of distance.
+
+```{r, echo = FALSE}
+
+# read in healthcare site locations
+df_site <- readRDS("../../data/healthcare_locations.rds")
+
+# calculate great circle distance to visited healthcare site
+main_dat$dist_visit <- mapply(function(i) {
+  m <- match(main_dat$ph1_site[i], df_site$name)
+  bobfunctions2::lonlat_to_bearing(main_dat$hh_long[i], main_dat$hh_lat[i],
+                                   df_site$long[m], df_site$lat[m])$gc_dist
+}, seq_len(nrow(main_dat)))
+
+# calculate great circle distance to nearest healthcare site
+main_dat$dist_nearest <- mapply(function(i) {
+  min(bobfunctions2::lonlat_to_bearing(main_dat$hh_long[i], main_dat$hh_lat[i],
+                                       df_site$long, df_site$lat)$gc_dist)
+}, seq_len(nrow(main_dat)))
+```
+
+```{r, echo = FALSE, fig.width = 8, fig.height = 4}
+# plot average distance
+main_dat %>%
+  dplyr::filter(dist_visit < 20) %>%
+  dplyr::filter(!is.na(visit_type)) %>%
+  ggplot() + theme_bw() +
+  geom_boxplot(aes(x = ph1_site, y = dist_visit, fill = visit_type)) +
+  xlab("healthcare facility") + ylab("distance from home") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+Distance travelled to healthcare facilities is a function of both the "draw" of the facility, and which facility is closest. To explore whether people are preferentially choosing certain facilities, I explored the distance to the chosen site minus distance to the *nearest* site. Any positive value indicates that a person went this much extra distance to reach the facility. For Bugoye HC III people are often travelling several km beyond their nearest facility to reach this site.
+
+```{r, echo = FALSE, fig.width = 8, fig.height = 4}
+# plot distance relative to closest
+main_dat %>%
+  dplyr::filter(dist_visit < 20) %>%
+  dplyr::filter(!is.na(visit_type)) %>%
+  ggplot() + theme_bw() +
+  geom_boxplot(aes(x = ph1_site, y = dist_visit - dist_nearest, fill = visit_type))
+```
+
+Overall, the different roles that facilities play in the community is something we should keep in mind in downstream analyses.
+
+
+## Proportion of visits relative to population
+
+In future it may be useful to map village-level estimates onto their catchment areas, so I downloaded a shapefile of village-level boundaries from [this website](https://pearlgeoportal.com/district/Kasese/shapefiles). There was a 66% agreement between participant-defined village and the location of the household on this shapefile. This suggests it may be difficult to delineate exactly where each village lies in space, and we might think about defining our own flexible boundaries using e.g. Veronoi cells.
+
+```{r, echo = FALSE}
+# define colour palette
+pal <- colorFactor(
+  palette = bobfunctions2::more_colours(40, raw_cols = brewer.pal(9, "Set1")),
+  domain = toupper(main_dat$village_name)
+)
+
+# compare overlap
+#mean(toupper(main_dat$village_name) == main_dat$UBOS_VNAME, na.rm = TRUE)
+
+# produce map
+leaflet(main_dat) %>%
+  addProviderTiles(leaflet::providers[[56]]) %>%
+  addPolygons(data = parish_dat, color = ~pal(VNAME), weight = 1) %>%
+  addCircles(lng = ~hh_long, lat = ~hh_lat, color = ~pal(toupper(village_name)), opacity = 1) %>%
+  setView(lng = 30.07, lat = 0.30, zoom = 12)
+```
+
+Population projections were merged with data on visits, matching on participant-defined village rather than the shapefile above. The following table gives the number of each type of visit and the proportion of visits relative to the projected population.
+
+```{r, echo = FALSE, message = FALSE}
+# read in population projections
+demog <- readRDS("../../output/demog_processed.rds") %>%
+  dplyr::filter(year == 2020)
+
+# compare visits to census
+demog_compare <- main_dat %>%
+  dplyr::group_by(village_name, visit_type) %>%
+  dplyr::count() %>%
+  dplyr::ungroup() %>%
+  dplyr::rename(village = village_name,
+                visits = n) %>%
+  dplyr::filter(!is.na(visit_type)) %>%
+  dplyr::mutate(village = toupper(village)) %>%
+  dplyr::left_join(demog) %>%
+  dplyr::select(village, visit_type, visits, population) %>%
+  dplyr::mutate(proportion = visits / population) %>%
+  dplyr::filter(!is.na(population))
+
+
+# make wide format table
+demog_wide <- demog_compare %>%
+  dplyr::select(village, visit_type, visits, population) %>%
+  tidyr::pivot_wider(names_from = visit_type, values_from = visits) %>%
+  dplyr::rename(Antenatal = 'Antenatal Clinic', OPD = "OPD Visit") %>%
+  dplyr::group_by(village) %>%
+  dplyr::summarise(population = population[1],
+                   antenatal = mean(Antenatal, na.rm = TRUE),
+                   antenatal_prop = antenatal / population,
+                   Immunization = mean(Immunization, na.rm = TRUE),
+                   Immunization_prop = Immunization / population,
+                   OPD = mean(OPD, na.rm = TRUE),
+                   OPD_prop = OPD / population)
+
+# make nice html table
+demog_wide %>%
+  kbl() %>%
+  kable_styling() %>%
+  kableExtra::scroll_box(width = "100%", height = "300px")
+  
+```
+
+<br><br>
+The following plots give the same information along with 95% exact Binomial intervals.
+
+```{r, echo = FALSE, fig.width = 7, fig.height = 8}
+# plot binomial confidence intervals
+epitools::binom.exact(x = demog_compare$visits, n = round(demog_compare$population)) %>%
+  dplyr::select(-c(proportion, x, n)) %>%
+  dplyr::bind_cols(demog_compare) %>%
+  ggplot() + theme_bw() +
+  geom_pointrange(aes(x = village, y = proportion, ymin = lower, ymax = upper)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  facet_wrap(~visit_type, ncol = 1)
+```
+
+There are some vilages that appear to have a significantly higher or lower proportion of visits relative to the village population (this is a more relevant finding for antenatal and immunization visits, rather than OPD). However, the validity of this result depends on how confident we are in the population projections, and the matching of village names between datasets.
+
+
