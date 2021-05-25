@@ -1,0 +1,241 @@
+---
+title: 'Accessible metrics of access: Novel tools to measure immunization coverage, Phase 3 Initial Data Summary'
+author: "Paul L. Delamater"
+date: "1/27/2021"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(kableExtra)
+library(tmap)
+library(RColorBrewer)
+tmap_mode("view")
+```
+
+```{r read_clean_data, echo=FALSE, warning=FALSE, message=FALSE}
+
+## CODE FROM  read_clean_phase3_data.R
+## Minus plots and writing data out
+
+## Read data
+dat <- read_csv("../../data/BoyceGatesVaccineAcc_DATA_2021-04-20_0744.csv")
+
+## Get initial number of observations
+n_obs_original <- nrow(dat)
+
+## Initial scan of position data shows a lot of issues...
+##   Read in as character data
+##   Let's use hh_lat and hh_long if available
+##   Fill in missing from lat_tab and long_tab
+##     But, note that lat_tab and long_tab have some reversed
+
+## One entry has double ".."?
+dat$lat_tab <- dat$lat_tab %>% str_replace("\\.\\.", "\\.") %>% as.numeric()
+
+##
+## Create single lat/long ----
+##
+
+## Make holder column for corrected *_tab versions
+dat$lat_tab_upd <- dat$lat_tab
+dat$long_tab_upd <- dat$long_tab
+
+## Identify obvious errors
+lat_long_flip <- which(dat$lat_tab > 1)
+n_fix_flip <- length(lat_long_flip)
+
+## Replace
+dat$lat_tab[lat_long_flip] <- dat$long_tab_upd[lat_long_flip]
+dat$long_tab[lat_long_flip] <- dat$lat_tab_upd[lat_long_flip]
+
+## Create new field
+dat$LAT <- dat$hh_lat
+dat$LONG <- dat$hh_long
+
+## Replace missing with "tablet" verions
+dat$LAT[which(is.na(dat$LAT))] <- dat$lat_tab[which(is.na(dat$LAT))]
+dat$LONG[which(is.na(dat$LONG))] <- dat$long_tab[which(is.na(dat$LONG))]
+
+## Looks like one is a transcription error 0.13xxxx instead of 0.31xxxx
+##    but, we cannot be sure, unfortunately
+## Looks like one is simply an error (missing LONG, both entries are LAT)
+## Looks like one is transciption error begins LONG, ends with LAT
+## So, we will remove them for now
+dat.na <- dat %>% filter(is.na(LAT) | is.na(LONG)) %>% nrow()
+dat.errors <- dat %>% filter(LAT < 0.2 | LONG < 25 | LONG > 30.2)
+
+## Remove temp columns
+dat.errors <- nrow(dat.errors)
+
+## Read cleaned version of data
+dat <- read_csv("../../output/BoyceGatesVaccineAcc_DATA_2021-04-20_0744_clean_geo.csv")
+
+## Get initial number of observations
+n_obs_final <- nrow(dat)
+```
+
+## Observations
+
+There are `r format(n_obs_original, big.mark = ",")` observations in the data. Of these, `r n_fix_flip` appeared to have reversed latitude and longitude coordinate values (which were corrected). `r dat.errors` observations appeared to have clearly erroneous coordinate values, and `r dat.na` observation was missing one or both coordinate values. These observations were removed. After removal of the observations with missing or erroneous coordinates, there are **`r format(n_obs_final, big.mark = ",")`** remaining (mapped below). 
+
+```{r point_map, echo=FALSE, warning=FALSE, message=FALSE}
+##
+## Create spatial object
+##
+dat <- st_as_sf(dat %>% as.data.frame(),
+                coords = c("LONG", "LAT"),
+                crs = 4326)
+
+basemap <- "CartoDB.Voyager"
+
+## Map
+tm_shape(dat) +
+  tm_basemap(basemap) +
+  tm_dots(size = 0.01) 
+
+```
+
+```{r parish_summary, echo=FALSE, warning=FALSE, message=FALSE}
+
+##
+## Evaluate the number of points with correct parish
+##
+
+## Read in parish boundaries
+ug.par.sf <- read_sf("../../data/Uganda_parish_bounds_2010/Uganda_parish_bounds_2010.shp")
+
+## Subset to parishes in the Kasese district
+# kasese.sf <- ug.par.sf %>% filter(DNAME_2010 == "KASESE")
+
+## Reproject parish bounds to WGS
+kasese.sf <- st_transform(ug.par.sf,
+                          crs = 4326)
+
+## Spatial join points to polygons
+## Note: only the name column of parish
+dat <- st_join(dat, kasese.sf[,2])
+
+## Rename column
+names(dat)[ncol(dat)-1] <- "PARISH_GIS"
+
+## Get Parish Codes/Names file
+## Copy/pasted to create manually
+par.codes <- read_csv("../../data/field_codes/ph1_parish_codes.csv")
+
+## Join to data
+dat <- merge(dat,
+             par.codes,
+             by.x = "parish",
+             by.y = "ph1_parish",
+             all.x = TRUE)
+
+## How many Parishes don't match and do match?
+n.parish.match <- sum(dat$PARISH_GIS == dat$`Parish of Residence`)
+n.parish.mismatch <- sum(dat$PARISH_GIS != dat$`Parish of Residence`)
+
+## Make variable
+dat$PARISH_M <- rep(0, nrow(dat))
+dat$PARISH_M[which(dat$PARISH_GIS == dat$`Parish of Residence`)] <- 1
+
+## Summarize
+par.match.tab <- st_drop_geometry(dat)[,c("Parish of Residence", "PARISH_M")] %>% 
+  group_by(`Parish of Residence`) %>% 
+  summarize_all(sum)
+par.all.tab <- table(dat$`Parish of Residence`, useNA = "ifany")
+par.match.tab$TOTAL <- par.all.tab
+
+## Percent agreement
+par.match.tab$PCT <- round(100 * par.match.tab$PARISH_M / par.match.tab$TOTAL, 1)
+
+## Make pretty
+pmt.d <- par.match.tab
+pmt.d <- pmt.d[,c(1,3,2,4)]
+names(pmt.d)[1:4] <- c("Reported Parish",
+                       "Observations",
+                       "Matches",
+                       "Match Percent")
+pmt.d$`Reported Parish`[6] <- "Missing"
+```
+
+
+
+## Observations by Parish
+
+The observations were converted to a spatial data format using the GPS coordinates of the residence. This conversion allowed the data to be overlain with a spatial data layer containing the boundaries of the Uganda's parishes. The parish recorded at the visit was compared to the GIS-derived parish, and the agreement between the two are presented below.
+
+```{r parish_table, echo=FALSE, warning=FALSE, message=FALSE}
+kable(pmt.d,
+      align = 'lccc') %>% 
+  kable_styling(bootstrap_options = c("striped", 
+                                      "hover", 
+                                      "condensed", 
+                                      "responsive"), 
+                full_width = F)
+```
+
+
+## Observations by Village
+
+SPACE HOLDER FOR OBSERVATIONS BY VILLAGE
+
+```{r village_summary, echo=FALSE, warning=FALSE, message=FALSE}
+
+```
+
+```{r village_table, echo=FALSE, warning=FALSE, message=FALSE}
+
+```
+
+
+## Immunization Summary
+
+```{r imm_card_summary, echo=FALSE, warning=FALSE, message=FALSE}
+## Get number of observations with card
+card_summary <- table(dat$card, useNA = "ifany")
+
+## Make subset table of obs with card
+dat_card <- dat %>% filter(card == 1)
+
+## Get summary of each vaccine
+vacc_summary <- lapply(st_drop_geometry(dat_card)[,62:69], table, useNA = "ifany") %>%
+  bind_rows() %>% t() %>% as.data.frame()
+
+## Make pretty
+vacc_summary$Vaccine <- c("Bacillus Calmette–Guérin (BCG)",
+                          "Polio (OPV)",
+                          "Pentavalent (DPT-HepB-Hib), Dose #1",
+                          "Pentavalent (DPT-HepB-Hib), Dose #2",
+                          "Pentavalent (DPT-HepB-Hib), Dose #3",
+                          "Measles",
+                          "Rotavirus, Dose #1",
+                          "Rotavirus, Dose #2")
+names(vacc_summary)[1:3] <- c("Not Administered", "Administered", "Unknown")
+vacc_summary$`Covered \\% (known)` <- round(100 * vacc_summary$Administered / nrow(dat_card), 2)
+vacc_summary <- vacc_summary[,c(4,2,1,3,5)]
+rownames(vacc_summary) <- NULL
+```
+
+Of the `r format(n_obs_final, big.mark = ",")` observations, **`r format(card_summary[2], big.mark = ",")`** had their vaccination card and **`r format(card_summary[1], big.mark = ",")`** did not have their vaccination card. `r format(card_summary[3], big.mark = ",")` of the observations were missing this information.
+
+```{r imm_card_map, echo=FALSE, warning=FALSE, message=FALSE}
+
+```
+
+
+```{r utd_table, echo=FALSE, warning=FALSE, message=FALSE}
+kable(vacc_summary,
+      align = 'lcccc') %>% 
+  kable_styling(bootstrap_options = c("striped", 
+                                      "hover", 
+                                      "condensed", 
+                                      "responsive"), 
+                full_width = F)
+```
+
