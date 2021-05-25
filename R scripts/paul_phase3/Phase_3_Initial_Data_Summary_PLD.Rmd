@@ -222,12 +222,36 @@ vacc_summary <- vacc_summary[,c(4,2,1,3,5)]
 rownames(vacc_summary) <- NULL
 ```
 
-Of the `r format(n_obs_final, big.mark = ",")` observations, **`r format(card_summary[2], big.mark = ",")`** had their vaccination card and **`r format(card_summary[1], big.mark = ",")`** did not have their vaccination card. `r format(card_summary[3], big.mark = ",")` of the observations were missing this information.
+```{r imm_no_card_summary, echo=FALSE, warning=FALSE, message=FALSE}
+## Make subset table of obs with card
+dat_no_card <- dat %>% filter(card == 0)
 
-```{r imm_card_map, echo=FALSE, warning=FALSE, message=FALSE}
+## Get summary of each vaccine
+vacc_summary_nc <- table(dat_no_card$vacc_recall, useNA = "ifany")
 
 ```
 
+Of the `r format(n_obs_final, big.mark = ",")` observations, **`r format(card_summary[2], big.mark = ",")`** had their vaccination card and **`r format(card_summary[1], big.mark = ",")`** did not have their vaccination card. `r format(card_summary[3], big.mark = ",")` of the observations were missing this information. This information is mapped below.
+
+```{r imm_card_map, echo=FALSE, warning=FALSE, message=FALSE}
+tm_shape(dat) +
+  tm_basemap(basemap) +
+  tm_dots(col = "card",
+          style = "cat",
+          palette = "Pastel1",
+          colorNA = "black",
+          legend.show = FALSE) +
+  tm_add_legend(type = "fill",
+                title = "Immunization Card",
+                labels = c("Not Available", 
+                           "Available",
+                           "No Data"),
+                col = c(brewer.pal(3, "Pastel1")[1:2], "black"))
+```
+
+### Specific Vaccines Summary
+
+For each specific vaccine (and dose, when appropriate), we calculated the percent coverage (only for children with a card). Some observations were missing data, which we treated as "not" covered in the estimates below. Overall, the coverage percent (in this group) was quite high.
 
 ```{r utd_table, echo=FALSE, warning=FALSE, message=FALSE}
 kable(vacc_summary,
@@ -239,3 +263,24 @@ kable(vacc_summary,
                 full_width = F)
 ```
 
+### Immunization Status Recall
+
+For children without an immunization card, the respondent was asked to recall their vaccination status, with three potential responses: no vaccinations, most vaccinations, all vaccinations. Out of the `r format(card_summary[1], big.mark = ",")` observations with no card, `r vacc_summary_nc[1]` (`r round(100 * vacc_summary_nc[1] / card_summary[1], 2)`%) reported the child had received no vaccinations, `r vacc_summary_nc[2]` (`r round(100 * vacc_summary_nc[2] / card_summary[1], 2)`%) reported most vaccinations, and `r vacc_summary_nc[3]` (`r round(100 * vacc_summary_nc[3] / card_summary[1], 2)`%) reported all vaccinations (`r vacc_summary_nc[4]` had a missing entry). 
+
+
+```{r imm_no_card_map, echo=FALSE, warning=FALSE, message=FALSE}
+tm_shape(dat_no_card) +
+  tm_basemap(basemap) +
+  tm_dots(col = "vacc_recall",
+          style = "cat",
+          palette = "RdYlBu",
+          colorNA = "black",
+          legend.show = FALSE) +
+  tm_add_legend(type = "fill",
+                title = "Recall Status",
+                labels = c("No Vaccinations", 
+                           "Most Vaccinations",
+                           "All Vaccinations",
+                           "No Data"),
+                col = c(brewer.pal(3, "RdYlBu"), "black"))
+```
