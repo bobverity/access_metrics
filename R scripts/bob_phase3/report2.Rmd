@@ -1,0 +1,72 @@
+---
+title: 'Accessible metrics of access: Novel tools to measure immunization coverage'
+subtitle: "PhaseIII analysis: significant spatial clusters of low vaccination"
+author: "Bob Verity"
+date: "08/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE, message = FALSE}
+library(tidyverse)
+library(raster)
+```
+
+## Population density distribution
+
+The Phase III data provides an accurate assessment of the spatial distribution of children 12-23 months in the study area. This can be compared against other sources of potentially useful information - for example density estimates from satellite imagery - to see how well they agree.
+
+The following rasters are from Facebook's population density estimates (see [here](https://dataforgood.fb.com/tools/population-density-maps/) and [here](https://data.humdata.org/dataset/highresolutionpopulationdensitymaps-uga)). These are subset to the study area and a box-blur is applied to smooth the surface somewhat. Phase II and phase III data are overlaid in black, and clinic locations are shown in red.
+
+```{r, echo=FALSE, warning=FALSE, fig.width=8, fig.height=8}
+# load plotting objects from file
+plot_list <- readRDS("../../output/facebook_phase_grob.rds")
+
+# extract globals
+long_mat <- plot_list$long_mat
+lat_mat <- plot_list$lat_mat
+m_blur <- plot_list$m_blur
+
+# plot
+print(plot_list$phase2)
+print(plot_list$phase3)
+```
+
+The phase III data shows good overall agreement with the Facebook data, although it's potentially too grainy to be very useful. From eyeballing the data, there are differences in the distributions of the phase II vs. phase III data, but it's not immediately clear how these can be interpreted in terms of the background population density. For example, it is not the case that there are clearly visible "holes" in the phase II data that correspond to areas of low vaccine uptake in the phase III data (this would have been our perfect result)!
+
+## Spatial clusters of low vaccination
+
+From the phaseIII data we can ask whether individuals with low vaccine uptake are found in spatial clusters. Following Pauls' work, I assumed that all individuals with a vaccine card had high vaccination, and within those with no card I focused on those with "No Vaccinations" in recall.
+
+Programs like SatScan can be used to identify significant spatial clusters. In SatScan we feed in the distribution of individuals of interest AND the distribution of all at-risk individuals. Note that this is possible from the phase III data because we have an exhaustive survey, but it would not be possible from phase II data alone unless we used something like the Facebook population density information above. However, a weakness of SatScan is that it is geared towards circular clusters, which can mean it misses real clusters if they have a non-circular shape. So instead I used a method described by Peter Diggle (Handbook of Spatial Statistics, section 22.2.2).
+
+In short, we use kernel density methods to produce a smooth surface of the risk of being in the no-vaccine group (lets call this surface $r_1$) and the risk of being in the vaccine group ($r_0$). Then we look at the log-relative risk of being in the no-vaccine group ($log(r_1 / r_0)$), which is shown below. Finally, we compute this same distribution for a large number of permutations of the vaccine status between individuals, and compute empirical p-values by comparing observed values to this distribution. This allows us to identify areas of significant spatial clustering, shown in red below. These are areas where the local risk of finding individuals who are unvaccinated is higher than we can explain by chance.
+
+```{r, echo=FALSE}
+# load plotting objects from file
+plot_list <- readRDS("../../output/kernel_density_clusters.rds")
+
+# extract globals
+long_mat <- plot_list$long_mat
+lat_mat <- plot_list$lat_mat
+s_plot <- plot_list$s_plot
+mask_upper <- plot_list$mask_upper
+
+# plot
+print(plot_list$plot)
+```
+
+We can also perform the same sort of analysis at the village level, now looking at the relative risk in people who identify from each village. The following plot shows the null 95% distribution that we would expect in each village (black vertical lines) and the observed value (red dots). If the dot is above the interval then we see more non-vaccinated individuals in that village than we would expect by chance (not accounting for multiple testing).
+
+```{r, echo=FALSE}
+# load plotting objects from file
+plot1 <- readRDS("../../output/village_permutation_clusters.rds")
+
+# plot
+print(plot1)
+```
+
+The key question is how this compares to our prelim estimates from phase II data. Unfortunately, the villages that we identified as having lower immunization coverage in phase II are not the same ones that come up as significant here. There are further questions that can be asked in terms of e.g. distance to nearest clinic for this low-vaccination group, and also questions about the makeup of local communities that may be explanatory, but in terms of the high-level spatial signal there is no easy win here.
