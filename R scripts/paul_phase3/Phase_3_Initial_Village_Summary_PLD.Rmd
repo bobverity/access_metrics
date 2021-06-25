@@ -1,0 +1,116 @@
+---
+title: 'Accessible metrics of access: Novel tools to measure immunization coverage, Phase 3 Initial Village Summary'
+author: "Paul L. Delamater"
+date: format(Sys.Date(), "%B %d, %Y")
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(kableExtra)
+library(tmap)
+library(RColorBrewer)
+tmap_mode("view")
+```
+
+```{r read_data, echo=FALSE, warning=FALSE, message=FALSE}
+
+## Read cleaned version of data
+dat <- read_csv("../../output/BoyceGatesVaccineAcc_DATA_2021-04-20_0744_clean_geo.csv")
+
+## Read in village bounds
+vill <- read_sf("../../data/KaseseVillagesUBOS20062122/Kasese_Villages_UBOS_2006.shp")
+
+## Read in village population data
+v.pop <- read_csv("../../data/updated Bugoye Sub-County Population Projections 2018-2020 (2).csv")
+
+## Read in and create village field code data
+par.codes <- read_csv("../../data/field_codes/ph1_parish_codes.csv")
+
+## Bugoye
+v.codes <- read_csv("../../data/field_codes/ph1_bugoye_codes.csv")
+names(v.codes) <- c("V_code", "V_name")
+v.codes$P_Name <- "Bugoye"
+v.codes$P_code <- 0
+village <- v.codes
+
+## Ibanda
+v.codes <- read_csv("../../data/field_codes/ph1_ibanda_codes.csv")
+names(v.codes) <- c("V_code", "V_name")
+v.codes$P_Name <- "Ibanda"
+v.codes$P_code <- 1
+village <- bind_rows(village, v.codes)
+
+## Katooke
+v.codes <- read_csv("../../data/field_codes/ph1_katooke_codes.csv")
+names(v.codes) <- c("V_code", "V_name")
+v.codes$P_Name <- "Katooke"
+v.codes$P_code <- 2
+village <- bind_rows(village, v.codes)
+
+## Kibirizi
+v.codes <- read_csv("../../data/field_codes/ph1_kibirizi_codes.csv")
+names(v.codes) <- c("V_code", "V_name")
+v.codes$P_Name <- "Kibirizi"
+v.codes$P_code <- 3
+village <- bind_rows(village, v.codes)
+
+## Muhambo
+v.codes <- read_csv("../../data/field_codes/ph1_muhambo_codes.csv")
+names(v.codes) <- c("V_code", "V_name")
+v.codes$P_Name <- "Muhambo"
+v.codes$P_code <- 4
+village <- bind_rows(village, v.codes)
+
+## Make village column
+village$village <- paste0(village$P_code, village$V_code)
+  
+```
+
+```{r data_prep, echo=FALSE, warning=FALSE, message=FALSE}
+
+## Prepare data for joining
+## Create a village "column" in the data table
+dat$village <- paste0(dat$parish, 
+                      replace_na(dat$v_bugoye, ""), 
+                      replace_na(dat$v_ibanda, ""), 
+                      replace_na(dat$v_katooke, ""), 
+                      replace_na(dat$v_kibirizi, ""), 
+                      replace_na(dat$v_muhambo, ""))
+
+
+
+```
+
+## Observations
+
+- bring in the updated village population data
+- PAUL: Assign distance to the level II data and or III data, for travel time
+- PAUL: PCA analysis of vaccination hesitancy questions?
+  - Green, is card and all vaccines
+  - Yellow, is no card, but says all up to date
+  - Orange, is no card, but says mostly up to date
+  - Red, is no card, says none
+
+```{r point_map, echo=FALSE, warning=FALSE, message=FALSE}
+##
+## Create spatial object
+##
+dat <- st_as_sf(dat %>% as.data.frame(),
+                coords = c("LONG", "LAT"),
+                crs = 4326)
+
+basemap <- "CartoDB.Voyager"
+
+## Map
+tm_shape(dat) +
+  tm_basemap(basemap) +
+  tm_dots(size = 0.01) 
+
+```
