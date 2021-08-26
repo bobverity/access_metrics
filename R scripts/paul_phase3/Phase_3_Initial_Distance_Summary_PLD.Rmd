@@ -76,6 +76,9 @@ dat$WLKMOTTIME_LIII_bin <- cut(dat$WLKMOTTIME_LIII,
                             labels = FALSE)
 # hist(dat$WALKTIME_LII_bin)
 
+## save processed data to file
+saveRDS(dat, file = "../../output/phase3_confidence.rds")
+
 ## Summarize by distance bins
 dist_walk_summary <- dat %>% group_by(WALKTIME_LII_bin) %>% 
   summarize(N = n(), measles_utd_conf = sum(measles_utd_conf))
