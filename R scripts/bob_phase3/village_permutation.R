@@ -4,7 +4,10 @@
 # Date: 2021-06-07
 #
 # Purpose:
-# (this is an example header)
+# Repeat of the kernel density permutation based method of identifying clusters
+# of non-vaccinated people, bit this time at the village level rather than in
+# continuous space. Note that in this simple case we can compute the null
+# distribution exactly (hypergeometric distribution).
 #
 # ------------------------------------------------------------------
 
@@ -53,8 +56,14 @@ for (i in seq_len(nrow(prop_obs))) {
 }
 
 # plot
-ggplot(prop_obs) + theme_bw() +
+plot1 <- ggplot(prop_obs) + theme_bw() +
   geom_linerange(aes(x = village_name, ymin = lower, ymax = upper)) +
   geom_point(aes(x = village_name, y = p), col = "red") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  xlab("village") + ylab("proportion no-vaccine")
+
+plot1
   
+# save to file
+saveRDS(plot1,
+        file = "output/village_permutation_clusters.rds")
