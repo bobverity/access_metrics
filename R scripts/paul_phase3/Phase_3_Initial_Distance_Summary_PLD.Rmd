@@ -1,0 +1,156 @@
+---
+title: 'Accessible metrics of access: Novel tools to measure immunization coverage, Phase 3 Initial Distance Summary'
+author: "Paul L. Delamater"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  html_document:
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(kableExtra)
+library(tmap)
+library(RColorBrewer)
+tmap_mode("view")
+```
+
+```{r read_prep_data, echo=FALSE, warning=FALSE, message=FALSE}
+
+## Read cleaned version of data
+dat <- read_csv("../../output/BoyceGatesVaccineAcc_DATA_2021-04-20_0744_clean_geo.csv")
+
+## Read in distance data
+dist <- read_csv("../../output/BoyceGatesVaccineAcc_DATA_2021-04-20_0744_clean_geo_traveltimes.csv")
+
+## Subset to just vacc coverage columns
+dat <- dat[,c(1,61:70)]
+
+## Create quick and dirty immunization probability coding
+## Use measles as example
+
+## Card = yes (1) and Vaccinated = yes (1) :::: 100% confidence
+## Card = yes (1) and Vaccinated = no (0)  :::: 0% confidence
+## Card = yes (1) and Vaccinated = NA      :::: 0% confidence
+## Card = no (0) and Recall = all (2)      :::: 67% confidence
+## Card = no (0) and Recall = some (1)     :::: 33% confidence
+## Card = no (0) and Recall = none (0)     :::: 0% confidence
+## Card = NA                               :::: 0% confidence
+
+## Create table for displaying this info
+vc <- tibble(Card = c(rep("Yes", 3), rep("No", 3), "NA"),
+             Vaccinated = c("Yes", "No", "NA", rep(NA, 4)),
+             Recall = c(rep(NA, 3), "All", "Some", "None", NA),
+             `Confidence (%)` = c(100, 0, 0, 66.67, 33.33, 0, 0))
+
+## Take care, because there are overlaps in the data!
+##  For example, card = 0 and measles = 1
+
+## Add column of 0s
+dat$measles_utd_conf <- 0
+
+## Assign 100% confidence
+dat$measles_utd_conf[dat$card == 1 & dat$measles == 1] <- 1
+
+## Assign 75% confidence
+dat$measles_utd_conf[dat$card == 0 & dat$vacc_recall == 2] <- 2/3
+
+## Assign 50% confidence
+dat$measles_utd_conf[dat$card == 0 & dat$vacc_recall == 1] <- 1/3
+
+
+## Join travel distance
+dat <- merge(dat,
+             dist,
+             by = "ph3_redcap_id")
+
+## Add distance bins
+dat$WALKTIME_LII_bin <- cut(dat$WALKTIME_LII, 
+                            breaks = seq(0, max(dat$WALKTIME_LII)+5, 5),
+                            labels = FALSE)
+# hist(dat$WALKTIME_LII_bin)
+dat$WLKMOTTIME_LIII_bin <- cut(dat$WLKMOTTIME_LIII, 
+                            breaks = seq(0, max(dat$WLKMOTTIME_LIII)+5, 5),
+                            labels = FALSE)
+# hist(dat$WALKTIME_LII_bin)
+
+## Summarize by distance bins
+dist_walk_summary <- dat %>% group_by(WALKTIME_LII_bin) %>% 
+  summarize(N = n(), measles_utd_conf = sum(measles_utd_conf))
+dist_walkmotor_summary <- dat %>% group_by(WLKMOTTIME_LIII_bin) %>% 
+  summarize(N = n(), measles_utd_conf = sum(measles_utd_conf))
+
+## Add variable with labels
+dist_walk_summary$WALKTIME_LII_label <- paste0(seq(0, max(dat$WALKTIME_LII), 5),
+                                               " - ",
+                                               seq(5, max(dat$WALKTIME_LII)+5, 5))
+dist_walkmotor_summary$WLKMOTTIME_LIII_label <- paste0(seq(0, max(dat$WLKMOTTIME_LIII), 5),
+                                               " - ",
+                                               seq(5, max(dat$WLKMOTTIME_LIII)+5, 5))
+
+## Calc coverage based on distance
+dist_walk_summary$measles_utd_pct <- dist_walk_summary$measles_utd_conf / dist_walk_summary$N
+dist_walkmotor_summary$measles_utd_pct <- dist_walkmotor_summary$measles_utd_conf / dist_walkmotor_summary$N
+
+```
+
+
+## Confidence of vaccination
+
+I developed the following confidence in vaccination scale based on the responses to the vaccination questions. For example, in the scale, 0% means we have 0% confidence the child is vaccinated. We assigned each respondent a confidence in being vaccinated for MMR based on their responses. 
+
+```{r table, echo=FALSE, warning=FALSE, message=FALSE}
+options(knitr.kable.NA = '')
+kable(vc) %>% kable_styling(bootstrap_options = "striped", 
+                            full_width = FALSE, 
+                            position = "left")
+```
+
+## Distance to health care
+
+Each respondent was assigned a distance to health care value based on 1) walking time to the nearest facility (Level II or Level III) and 2) walking plus motorcycle time to the Level III facility. The travel times were estimated using a GIS and elevation, land cover, and roads data.
+
+## Vaccination coverage and distance
+
+We bucketed respondents in groups based on 5 minute increments of travel time (e.g., 0-5 minutes, 5-10 minutes, ...) to a facility, and then calculated an estimate percent of children up to date on the MMR vaccination (based on our confidence scores). The results for walking time and walking + motorcycle time are plotted below.
+
+------
+
+```{r ggplot, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data = dist_walk_summary, 
+       aes(x = WALKTIME_LII_bin, 
+           y = 100 * measles_utd_pct)) +
+  geom_bar(stat = "identity") +
+  scale_x_continuous(breaks = dist_walk_summary$WALKTIME_LII_bin,
+                   labels = dist_walk_summary$WALKTIME_LII_label) +
+  labs(title = "MMR coverage and walking time to nearest facility (LII or LIII)",
+       x = "Distance bin (minutes)", 
+       y = "Estimated MMR coverage") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   vjust = 1.4,
+                                   hjust = 1.1))
+
+```
+
+------
+
+```{r ggplot2, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data = dist_walkmotor_summary, 
+       aes(x = WLKMOTTIME_LIII_bin, 
+           y = 100 * measles_utd_pct)) +
+  geom_bar(stat = "identity") +
+  scale_x_continuous(breaks = dist_walkmotor_summary$WLKMOTTIME_LIII_bin,
+                   labels = dist_walkmotor_summary$WLKMOTTIME_LIII_label) +
+  labs(title = "MMR coverage and walking + motorcycle time to LIII facility",
+       x = "Distance bin (minutes)", 
+       y = "Estimated MMR coverage") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   vjust = 1.4,
+                                   hjust = 1.1))
+
+```
+
