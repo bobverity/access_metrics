@@ -18,7 +18,7 @@ dat <- st_as_sf(dat %>% as.data.frame(),
 dat <- dat[,1]
 
 ## Read in travel time, walking time
-walk.time <- raster("../../data/travel_time/Cost_minutes_Level_Il_III_walkonly.img")
+walk.time <- raster("../../data/travel_time/Cost_minutes_Level_II_III_Priv_walkonly.img")
 
 # Quick Map
 # tm_shape(walk.time) +
